@@ -94,6 +94,30 @@ custom-grave-skull:
   enabled: false
   base64: ""
 
+# BetterModel integration - replaces the default skull with a 3D model
+# requires BetterModel plugin to be installed
+better-model:
+  # enable BetterModel integration
+  enabled: true
+  # the model name to use (must exist in BetterModel's models/ or players/ directory)
+  model-name: "npc_death"
+  # if true, uses the player's skin on a limb model (BetterModel.limb())
+  # if false, uses a generic model (BetterModel.model())
+  use-player-model: false
+  # Y offset for the model position (in blocks)
+  # increase if the model sinks into the ground, decrease if it floats
+  y-offset: 0.5
+  # should the model look at the nearest player?
+  look-at-player: true
+  # maximum distance (in blocks) for the model to track and look at a player
+  look-range: 16.0
+  # animation to play on the model (leave empty to disable)
+  # the animation must exist in the model's .bbmodel file
+  idle-animation: "idle"
+  # how high above the model the hologram should spawn (in blocks)
+  # the model is ~1.8 blocks tall, so this offsets from the top of the model
+  hologram-height: 3.4
+
 # you can add any amount of worlds
 # if you don't define a world, the plugin will use the default world limits of the dimension
 spawn-height-limits:

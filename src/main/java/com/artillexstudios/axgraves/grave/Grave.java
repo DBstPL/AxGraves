@@ -17,6 +17,7 @@ import com.artillexstudios.axapi.utils.EquipmentSlot;
 import com.artillexstudios.axapi.utils.StringUtils;
 import com.artillexstudios.axgraves.api.events.GraveInteractEvent;
 import com.artillexstudios.axgraves.api.events.GraveOpenEvent;
+import com.artillexstudios.axgraves.hooks.BetterModelHook;
 import com.artillexstudios.axgraves.utils.BlacklistUtils;
 import com.artillexstudios.axgraves.utils.ExperienceUtils;
 import com.artillexstudios.axgraves.utils.InventoryUtils;
@@ -57,7 +58,9 @@ public class Grave {
     private final Inventory gui;
     private int storedXP;
     private final PacketEntity entity;
+    private PacketEntity entityUpper; // second hitbox ArmorStand for tall BetterModel models
     private Hologram hologram;
+    private Object betterModelTracker;
     private boolean removed = false;
 
     public Grave(Location loc, @NotNull OfflinePlayer offlinePlayer, @NotNull List<ItemStack> items, int storedXP, long date) {
@@ -91,27 +94,60 @@ public class Grave {
         }
         items.forEach(gui::addItem);
 
-        this.entity = NMSHandlers.getNmsHandler().createEntity(EntityType.ARMOR_STAND, location.clone().add(0, 1 + CONFIG.getFloat("head-height", -1.2f), 0));
-        entity.setItem(EquipmentSlot.HELMET, WrappedItemStack.wrap(Utils.getPlayerHead(offlinePlayer)));
-        final ArmorStandMeta meta = (ArmorStandMeta) entity.meta();
-        meta.small(true);
-        meta.invisible(true);
-        meta.setNoBasePlate(false);
-        entity.spawn();
+        boolean useBetterModel = BetterModelHook.isEnabled();
 
-        if (CONFIG.getBoolean("rotate-head-360", true)) {
-            entity.location().setYaw(location.getYaw());
-            entity.teleport(entity.location());
-        } else {
-            entity.location().setYaw(LocationUtils.getNearestDirection(location.getYaw()));
-            entity.teleport(entity.location());
-        }
-
-        entity.onInteract(event -> {
-            Scheduler.get().runAt(location, task -> {
-                interact(event.getPlayer(), event.getHand());
+        if (useBetterModel) {
+            // Spawn two invisible ArmorStands for click interaction — covers full ~3 block model
+            // Lower ArmorStand (y+0): covers bottom ~2 blocks
+            this.entity = NMSHandlers.getNmsHandler().createEntity(EntityType.ARMOR_STAND, location.clone());
+            final ArmorStandMeta meta = (ArmorStandMeta) entity.meta();
+            meta.small(false);
+            meta.invisible(true);
+            meta.setNoBasePlate(true);
+            entity.spawn();
+            entity.onInteract(event -> {
+                Scheduler.get().runAt(location, task -> interact(event.getPlayer(), event.getHand()));
             });
-        });
+
+            // Upper ArmorStand (y+1.8): covers top ~1.2 blocks (head area)
+            this.entityUpper = NMSHandlers.getNmsHandler().createEntity(EntityType.ARMOR_STAND, location.clone().add(0, 1.8, 0));
+            final ArmorStandMeta metaUpper = (ArmorStandMeta) entityUpper.meta();
+            metaUpper.small(false);
+            metaUpper.invisible(true);
+            metaUpper.setNoBasePlate(true);
+            entityUpper.spawn();
+            entityUpper.onInteract(event -> {
+                Scheduler.get().runAt(location, task -> interact(event.getPlayer(), event.getHand()));
+            });
+
+            // Spawn BetterModel at the grave location with Y offset from config
+            double yOffset = CONFIG.getDouble("better-model.y-offset", 0.15);
+            Location modelLoc = location.clone().add(0, yOffset, 0);
+            modelLoc.setYaw(loc.getYaw());
+            this.betterModelTracker = BetterModelHook.spawnModel(modelLoc, offlinePlayer);
+        } else {
+            this.entity = NMSHandlers.getNmsHandler().createEntity(EntityType.ARMOR_STAND, location.clone().add(0, 1 + CONFIG.getFloat("head-height", -1.2f), 0));
+            entity.setItem(EquipmentSlot.HELMET, WrappedItemStack.wrap(Utils.getPlayerHead(offlinePlayer)));
+            final ArmorStandMeta meta = (ArmorStandMeta) entity.meta();
+            meta.small(true);
+            meta.invisible(true);
+            meta.setNoBasePlate(false);
+            entity.spawn();
+
+            if (CONFIG.getBoolean("rotate-head-360", true)) {
+                entity.location().setYaw(location.getYaw());
+                entity.teleport(entity.location());
+            } else {
+                entity.location().setYaw(LocationUtils.getNearestDirection(location.getYaw()));
+                entity.teleport(entity.location());
+            }
+
+            entity.onInteract(event -> {
+                Scheduler.get().runAt(location, task -> {
+                    interact(event.getPlayer(), event.getHand());
+                });
+            });
+        }
 
         updateHologram();
     }
@@ -131,6 +167,11 @@ public class Grave {
         if (CONFIG.getBoolean("auto-rotation.enabled", false)) {
             entity.location().setYaw(entity.location().getYaw() + CONFIG.getFloat("auto-rotation.speed", 10f));
             entity.teleport(entity.location());
+        }
+
+        // Tick BetterModel - spawn for new nearby players
+        if (betterModelTracker != null) {
+            BetterModelHook.tickModel(betterModelTracker, location);
         }
     }
 
@@ -215,7 +256,13 @@ public class Grave {
 
         List<String> lines = LANG.getStringList("hologram");
 
-        double hologramHeight = CONFIG.getFloat("hologram-height", 0.75f) + 1;
+        double hologramHeight;
+        if (betterModelTracker != null) {
+            // BetterModel: model is ~1.8 blocks tall, hologram above head
+            hologramHeight = CONFIG.getDouble("better-model.hologram-height", 2.3);
+        } else {
+            hologramHeight = CONFIG.getFloat("hologram-height", 0.75f) + 1;
+        }
         hologram = new Hologram(location.clone().add(0, getNewHeight(hologramHeight, lines.size(), 0.3f), 0));
 
         HologramPage<String, HologramType<String>> page = hologram.createPage(HologramTypes.TEXT);
@@ -258,7 +305,12 @@ public class Grave {
             removeInventory();
 
             if (entity != null) entity.remove();
+            if (entityUpper != null) entityUpper.remove();
             if (hologram != null) hologram.remove();
+            if (betterModelTracker != null) {
+                BetterModelHook.removeModel(betterModelTracker);
+                betterModelTracker = null;
+            }
         };
 
         if (Scheduler.get().isOwnedByCurrentRegion(location)) runnable.run();
@@ -317,6 +369,10 @@ public class Grave {
 
     public PacketEntity getEntity() {
         return entity;
+    }
+
+    public PacketEntity getEntityUpper() {
+        return entityUpper;
     }
 
     public Hologram getHologram() {

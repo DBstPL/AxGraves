@@ -14,6 +14,7 @@ import com.artillexstudios.axgraves.commands.CommandManager;
 import com.artillexstudios.axgraves.grave.Grave;
 import com.artillexstudios.axgraves.grave.GravePlaceholders;
 import com.artillexstudios.axgraves.grave.SpawnedGraves;
+import com.artillexstudios.axgraves.hooks.BetterModelHook;
 import com.artillexstudios.axgraves.listeners.DeathListener;
 import com.artillexstudios.axgraves.listeners.PlayerInteractListener;
 import com.artillexstudios.axgraves.schedulers.SaveGraves;
@@ -60,6 +61,8 @@ public final class AxGraves extends AxPlugin {
         new DeathListener();
         getServer().getPluginManager().registerEvents(new PlayerInteractListener(), this);
 
+        BetterModelHook.init();
+
         CommandManager.load();
         GravePlaceholders.register();
 
@@ -86,6 +89,7 @@ public final class AxGraves extends AxPlugin {
         for (Grave grave : SpawnedGraves.getGraves()) {
             if (!CONFIG.getBoolean("save-graves.enabled", true)) grave.remove();
             if (grave.getEntity() != null) grave.getEntity().remove();
+            if (grave.getEntityUpper() != null) grave.getEntityUpper().remove();
             if (grave.getHologram() != null) grave.getHologram().remove();
         }
 
